@@ -327,6 +327,47 @@ footer{color:var(--muted);font-size:.95rem;margin-top:4rem;border-top:1px solid 
   </div>
 </section>
 
+<!-- 8 -->
+<section class="step" id="paso8">
+  <div class="num" aria-hidden="true">8</div>
+  <div>
+    <h2>Ejercicio 2: el espectrograma mel</h2>
+    <div class="prose">
+      <p>El espectrograma que hemos construido tiene <strong>257 frecuencias repartidas por igual</strong> entre 0 y 8000 Hz. Pero el oído no escucha así: distingue muy bien un tono de 200 Hz de uno de 300 Hz, y casi no nota la diferencia entre 6200 Hz y 6300 Hz. La <strong>escala mel</strong> imita esa percepción: da muchas bandas a los graves y pocas a los agudos.</p>
+      <p>Es el mismo audio, la misma ventana de Hamming de 20 ms, el mismo solape del 50 % y la misma FFT de 512 puntos. Solo cambia lo que hacemos <em>después</em> de la FFT, en <code>librosa.feature.melspectrogram</code>:</p>
+      <ol>
+        <li><strong>Espectro de potencia.</strong> Se toma <code>|S|²</code> de cada columna, no <code>|S|</code>. Por eso al final se usa <code>librosa.power_to_db</code> (10·log₁₀) y no <code>amplitude_to_db</code> (20·log₁₀): es la misma cuenta, porque 10·log₁₀(|S|²) = 20·log₁₀|S|.</li>
+        <li><strong>Banco de filtros mel.</strong> Se construyen <code>n_mels = 80</code> filtros triangulares, estrechos en graves y anchos en agudos. Cada uno suma las frecuencias de las que se encarga y devuelve un solo número.</li>
+        <li><strong>Multiplicación de matrices.</strong> <code>Smel = filtros (80×257) · potencia (257×181)</code>. Cada columna de 257 valores pasa a tener 80.</li>
+        <li><strong>A decibelios</strong> con <code>power_to_db</code> y, como siempre, 80 dB de margen por debajo del máximo.</li>
+      </ol>
+      <p>Librosa necesita <code>sr=fs</code> para saber a cuántos hercios corresponde cada bin de la FFT y poder colocar los filtros. Sin él, usaría 22 050 Hz por defecto y los filtros caerían en sitios equivocados.</p>
+    </div>
+
+    <div class="lab">
+      <div class="row">
+        <label>Bandas mel <input type="range" id="melN" min="10" max="128" step="1" value="80"><span class="val" id="melNv">80</span></label>
+      </div>
+      <div class="legend"><span>Cada triángulo es una banda mel (el peso que da a cada frecuencia de la FFT)</span></div>
+      <canvas id="melFB" style="height:200px"></canvas>
+      <div class="duo" style="margin:1.2rem 0 0">
+        <figure><div class="tag" style="color:var(--hamm)">Lineal, Hamming (257 filas)</div><canvas id="melLin" class="spec"></canvas></figure>
+        <figure><div class="tag" style="color:var(--hamm)">Mel, Hamming (<span id="melRows">80</span> filas)</div><canvas id="melSpec" class="spec"></canvas></figure>
+      </div>
+      <figcaption>Mismas columnas de tiempo, distinto eje vertical. En el mel, las frecuencias bajas ocupan mucho más espacio y las altas quedan comprimidas. En esta grabación, <code>Sdb[2,2]</code> vale <code id="melV22"></code> dB y la forma es <code>(<span id="melShape"></span>)</code>.</figcaption>
+    </div>
+
+    <div class="prose">
+      <h3>Qué estás viendo, y por qué</h3>
+      <p><strong>Un «zoom» en graves.</strong> Entre 0 y 1000 Hz, donde están el tono de la voz y sus primeros armónicos, el mel gasta un tercio del eje; en el espectrograma lineal esa zona es apenas un octavo. Los armónicos de las vocales se ven con mucho más detalle.</p>
+      <p><strong>Una «compresión» en agudos.</strong> A partir de unos 1000 Hz la escala mel es logarítmica: cada salto de altura equivale a multiplicar la frecuencia, no a sumarle. Por eso las marcas del eje (512, 1024, 2048, 4096 Hz) quedan a la misma distancia unas de otras.</p>
+      <p><strong>Menos dimensiones.</strong> Cada columna pasa de 257 números a 80. Es menos información, pero justo la que más le importa al oído, y por eso es la entrada habitual de los sistemas de reconocimiento de voz.</p>
+      <p><strong>Los triángulos graves son más altos.</strong> Librosa normaliza cada filtro por su anchura (<code>norm='slaney'</code>) para que todas las bandas tengan la misma área. Si no, las bandas anchas de agudos sumarían muchas más frecuencias y saldrían artificialmente más fuertes.</p>
+      <p>Prueba a bajar las bandas a 10 o 20: el espectrograma se vuelve un mosaico, porque cada banda abarca muchas frecuencias. Con 128 aparecen filas casi vacías en los graves, porque hay más filtros que bins de FFT en esa zona (los bins están separados 31 Hz).</p>
+    </div>
+  </div>
+</section>
+
 <footer>Todas las gráficas se calculan en vivo con una FFT escrita en JavaScript. La señal es tu grabación <code>siete.wav</code> (16 kHz, 28 904 muestras) incrustada en la página, así que funciona sin el archivo.</footer>
 </main>
 
@@ -381,11 +422,10 @@ function loadSiete() {
 const sig = loadSiete();
 const NS = sig.length;
 
-/* ---------- STFT estilo librosa (center=True, reflect) ---------- */
+/* ---------- STFT estilo librosa (center=True, relleno con ceros) ---------- */
 function stft(x, wkey) {
   const pad = NFFT / 2, xp = new Float64Array(x.length + NFFT);
   xp.set(x, pad);
-  for (let k = 0; k < pad; k++) { xp[pad - 1 - k] = x[k + 1]; xp[pad + x.length + k] = x[x.length - 2 - k]; }
   const w = new Float64Array(NFFT); w.set(WINS[wkey], (NFFT - WIN) / 2);
   const frames = 1 + Math.floor(x.length / HOP), bins = NFFT / 2 + 1;
   const S = new Float32Array(frames * bins); let mx = -Infinity;
@@ -461,7 +501,7 @@ function drawSpec(cv, sp, fmax) {
 
 /* ---------- animación principal ---------- */
 const XP = (() => { const pad = NFFT / 2, xp = new Float64Array(NS + NFFT); xp.set(sig, pad);
-  for (let k = 0; k < pad; k++) { xp[pad - 1 - k] = sig[k + 1]; xp[pad + NS + k] = sig[NS - 2 - k]; } return xp; })();
+ return xp; })();
 const FRAMES = SPEC.r.frames, BINS = SPEC.r.bins, OFF = (NFFT - WIN) / 2;
 function specImage(sp) {
   const c = document.createElement('canvas'); c.width = sp.frames; c.height = sp.bins;
@@ -719,8 +759,72 @@ function drawSpec2() { drawSpec(document.getElementById('spec2R'), SPEC.r, fmax2
 function setZ(f) { fmax2 = f; z8.setAttribute('aria-pressed', f === 8000); z4.setAttribute('aria-pressed', f === 4000); drawSpec2(); }
 z8.onclick = () => setZ(8000); z4.onclick = () => setZ(4000);
 
+/* ---------- paso 8: espectrograma mel (librosa.feature.melspectrogram, htk=False, norm='slaney') ---------- */
+const hz2mel = f => f < 1000 ? f / (200 / 3) : 15 + Math.log(f / 1000) / (Math.log(6.4) / 27);
+const mel2hz = m => m < 15 ? m * (200 / 3) : 1000 * Math.exp((Math.log(6.4) / 27) * (m - 15));
+function melBank(nm) {
+  const bins = NFFT / 2 + 1, mf = Array.from({ length: nm + 2 }, (_, i) => mel2hz(hz2mel(0) + (hz2mel(FS / 2) - hz2mel(0)) * i / (nm + 1)));
+  const W = [];
+  for (let i = 0; i < nm; i++) {
+    const w = new Float64Array(bins), en = 2 / (mf[i + 2] - mf[i]);
+    for (let k = 0; k < bins; k++) { const f = k * FS / NFFT, lo = (f - mf[i]) / (mf[i + 1] - mf[i]), up = (mf[i + 2] - f) / (mf[i + 2] - mf[i + 1]); w[k] = Math.max(0, Math.min(lo, up)) * en; }
+    W.push(w);
+  }
+  return W;
+}
+const POWH = (() => { // |S|^2 con Hamming, sin pasar a dB
+  const w = new Float64Array(NFFT); w.set(WINS.h, (NFFT - WIN) / 2);
+  const bins = NFFT / 2 + 1, P = new Float64Array(FRAMES * bins), fr = new Float64Array(NFFT);
+  for (let t = 0; t < FRAMES; t++) {
+    for (let j = 0; j < NFFT; j++) fr[j] = XP[t * HOP + j] * w[j];
+    const m = magSpec(fr, NFFT); for (let b = 0; b < bins; b++) P[t * bins + b] = m[b] * m[b];
+  }
+  return P;
+})();
+function melSpec(nm) {
+  const bins = NFFT / 2 + 1, W = melBank(nm), S = new Float32Array(FRAMES * nm); let mx = -Infinity;
+  for (let t = 0; t < FRAMES; t++) for (let i = 0; i < nm; i++) {
+    let a = 0; const w = W[i]; for (let k = 0; k < bins; k++) a += w[k] * POWH[t * bins + k];
+    const v = 10 * Math.log10(Math.max(1e-10, a)); S[t * nm + i] = v; if (v > mx) mx = v;
+  }
+  for (let i = 0; i < S.length; i++) S[i] = Math.max(S[i], mx - 80);
+  return { S, nm, max: mx, W };
+}
+const melN = document.getElementById('melN');
+function drawMel() {
+  const nm = +melN.value, M = melSpec(nm);
+  document.getElementById('melNv').textContent = nm; document.getElementById('melRows').textContent = nm;
+  document.getElementById('melShape').textContent = nm + ', ' + FRAMES;
+  document.getElementById('melV22').textContent = (M.S[2 * nm + 2]).toFixed(2).replace('-', '\u2212');
+  { // banco de filtros
+    const { ctx, w, h } = setup(document.getElementById('melFB'));
+    let pk = 0; for (const f of M.W) for (const v of f) pk = Math.max(pk, v);
+    const { X, Y, m } = axes(ctx, w, h, { xmin: 0, xmax: 8000, ymin: 0, ymax: pk * 1.05, xt: [0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000], xf: v => v ? (v / 1000) + 'k' : '0', xl: 'Hz', yt: [] });
+    clipPlot(ctx, w, h, m);
+    M.W.forEach((f, i) => { let a = 0, b = f.length - 1; while (a < b && f[a] === 0) a++; while (b > a && f[b] === 0) b--; a = Math.max(0, a - 1); b = Math.min(f.length - 1, b + 1);
+      line(ctx, X, Y, j => (j + a) * FS / NFFT, Array.from(f.slice(a, b + 1)), css(i % 2 ? '--hamm' : '--rect'), 1.2); });
+    ctx.restore();
+  }
+  drawSpec(document.getElementById('melLin'), SPEC.h, 8000);
+  { // espectrograma mel
+    const { ctx, w, h } = setup(document.getElementById('melSpec'));
+    const off = document.createElement('canvas'); off.width = FRAMES; off.height = nm;
+    const oc = off.getContext('2d'), img = oc.createImageData(FRAMES, nm), lo = M.max - 80;
+    for (let t = 0; t < FRAMES; t++) for (let i = 0; i < nm; i++) {
+      const c = inferno((M.S[t * nm + i] - lo) / 80), p = ((nm - 1 - i) * FRAMES + t) * 4;
+      img.data[p] = c[0]; img.data[p + 1] = c[1]; img.data[p + 2] = c[2]; img.data[p + 3] = 255;
+    }
+    oc.putImageData(img, 0, 0);
+    const mm = hz2mel(FS / 2), hzT = [0, 512, 1024, 2048, 4096, 8000], frT = hzT.map(f => hz2mel(f) / mm), lab = new Map(frT.map((v, i) => [v, hzT[i]]));
+    const { m } = axes(ctx, w, h, { xmin: 0, xmax: (FRAMES - 1) * HOP / FS, ymin: 0, ymax: 1, xt: [0, 0.5, 1, 1.5], yt: frT, yf: v => { const f = lab.get(v); return f >= 1000 ? (f % 1000 ? f : f / 1000 + 'k') : f; }, xl: 's', yl: 'Hz', noGrid: true });
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(off, m.l, m.t, w - m.l - m.r, h - m.t - m.b);
+  }
+}
+melN.addEventListener('input', drawMel);
+
 /* ---------- todo ---------- */
-function drawAll() { A.dirty = true; drawWave(); drawFrame(); drawFSpec(); drawWin(); drawTones(); drawSpec2(); }
+function drawAll() { A.dirty = true; drawWave(); drawFrame(); drawFSpec(); drawWin(); drawTones(); drawSpec2(); drawMel(); }
 drawAll();
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawAll);
 requestAnimationFrame(tick);
