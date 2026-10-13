@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ventana rectangular vs Hamming: cómo nace un espectrograma</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F3F1F7; --panel:#FFFFFF; --ink:#1D1A2B; --muted:#5D5872; --grid:#DCD7E6;
+  --rect:#D9580F; --hamm:#5B3FBF; --orig:#9C97AE; --ok:#1F7A4D; --bad:#B3261E;
+  --display:"Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --body:"Source Serif 4", Georgia, "Times New Roman", serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#15121F; --panel:#1E1A2B; --ink:#ECE8F5; --muted:#A9A3BE; --grid:#2E2942;
+    --rect:#FF8A3D; --hamm:#A691FF; --orig:#6E6884; --ok:#5BD69A; --bad:#FF8A80; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#15121F; --panel:#1E1A2B; --ink:#ECE8F5; --muted:#A9A3BE; --grid:#2E2942;
+  --rect:#FF8A3D; --hamm:#A691FF; --orig:#6E6884; --ok:#5BD69A; --bad:#FF8A80; color-scheme: dark;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:1.12rem;line-height:1.62}
+main{max-width:1060px;margin:0 auto;padding:0 1.25rem 5rem}
+.prose{max-width:40rem}
+h1,h2,h3{font-family:var(--display);line-height:1.08;letter-spacing:-.015em;margin:0}
+h1{font-size:clamp(2.2rem,6vw,4.2rem);font-weight:800;max-width:14ch;margin-top:3.5rem}
+h2{font-size:clamp(1.6rem,3.6vw,2.3rem);font-weight:800;margin-bottom:.9rem}
+h3{font-size:1.15rem;font-weight:600;margin:1.6rem 0 .4rem}
+p{margin:0 0 1rem}
+.lede{font-size:1.25rem;color:var(--muted);max-width:36rem;margin-top:1.2rem}
+.r{color:var(--rect);font-weight:600}
+.h{color:var(--hamm);font-weight:600}
+code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.88em;background:var(--grid);padding:.08em .35em;border-radius:4px}
+
+/* hero spectrograms */
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin:2.5rem 0 1rem}
+.duo figure{margin:0}
+.tag{font-family:var(--display);font-weight:600;font-size:1.05rem;display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem}
+.tag::before{content:"";width:14px;height:14px;border-radius:3px;background:currentColor}
+canvas{display:block;width:100%;background:var(--panel);border-radius:10px}
+.spec{height:300px}
+figcaption{font-size:.95rem;color:var(--muted);margin-top:.5rem}
+
+/* animación */
+.anim{margin:2.5rem 0 1rem}
+.seg{display:inline-flex;gap:.3rem}
+.phases{list-style:none;counter-reset:ph;display:flex;flex-wrap:wrap;gap:.4rem;padding:0;margin:.4rem 0 .3rem;font-family:var(--display);font-size:.92rem}
+.phases li{counter-increment:ph;padding:.3rem .75rem;border-radius:999px;border:1.5px solid var(--grid);color:var(--muted);transition:background .2s,color .2s}
+.phases li::before{content:counter(ph) "  ";font-weight:800}
+.phases li.on{background:var(--ink);border-color:var(--ink);color:var(--panel)}
+.phases li.done{color:var(--ink);border-color:var(--ink)}
+.amsg{min-height:3.3em;margin:.3rem 0 .6rem;font-size:1.02rem;max-width:46rem}
+@media (prefers-reduced-motion: reduce){.phases li{transition:none}}
+/* steps */
+section.step{display:grid;grid-template-columns:4.5rem 1fr;gap:0 1.5rem;padding-top:4.5rem}
+.num{font-family:var(--display);font-weight:800;font-size:3.6rem;line-height:1;color:var(--grid);-webkit-text-stroke:1.5px var(--muted)}
+.lab{background:var(--panel);border-radius:14px;padding:1.1rem 1.1rem 1.2rem;margin:1.4rem 0}
+.lab canvas{background:transparent}
+.row{display:flex;flex-wrap:wrap;gap:.6rem 1.2rem;align-items:center;margin:.4rem 0 .8rem;font-family:var(--display);font-size:.98rem}
+.row label{display:flex;align-items:center;gap:.6rem;flex:1 1 260px}
+input[type=range]{flex:1;accent-color:var(--ink);min-width:120px}
+.val{font-variant-numeric:tabular-nums;min-width:5.5ch;font-weight:600}
+button{font-family:var(--display);font-size:.95rem;border:1.5px solid var(--ink);background:transparent;color:var(--ink);padding:.35rem .8rem;border-radius:999px;cursor:pointer}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--hamm);outline-offset:2px}
+.legend{display:flex;gap:1.2rem;flex-wrap:wrap;font-family:var(--display);font-size:.92rem;color:var(--muted);margin:.3rem 0 .2rem}
+.legend span{display:flex;align-items:center;gap:.4rem}
+.legend i{display:inline-block;width:18px;height:3px;border-radius:2px}
+.verdict{display:grid;grid-template-columns:1fr 1fr;gap:.8rem;margin-top:.8rem;font-family:var(--display);font-size:.98rem}
+.verdict div{border-left:4px solid;padding:.2rem .7rem}
+.callout{border-left:4px solid var(--ink);padding:.2rem 0 .2rem 1rem;margin:1.3rem 0;font-style:italic}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:1rem;margin:1rem 0}
+th,td{text-align:left;padding:.65rem .8rem;border-bottom:1px solid var(--grid);vertical-align:top}
+th{font-family:var(--display);font-weight:600}
+thead th:nth-child(2){color:var(--rect)} thead th:nth-child(3){color:var(--hamm)}
+footer{color:var(--muted);font-size:.95rem;margin-top:4rem;border-top:1px solid var(--grid);padding-top:1rem}
+@media (max-width:720px){
+  .duo{grid-template-columns:1fr}
+  section.step{grid-template-columns:1fr}
+  .num{font-size:2.6rem;margin-bottom:.6rem}
+  .verdict{grid-template-columns:1fr}
+  .spec{height:240px}
+}
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>Mismo audio, dos espectrogramas distintos</h1>
+  <p class="lede">En la práctica calculaste el espectrograma de «siete» dos veces, cambiando solo la ventana, y salieron imágenes diferentes. Primero mira cómo se construye cada uno, trozo a trozo y FFT a FFT. Después, los pasos de abajo explican de dónde sale la diferencia.</p>
+</header>
+
+<section class="lab anim" aria-label="Animación: de la señal al espectrograma">
+  <div class="row">
+    <button id="aPlay">Pausar</button>
+    <button id="aReset">Empezar desde el principio</button>
+    <span class="seg" role="group" aria-label="Velocidad"><button id="mStep" aria-pressed="true">Paso a paso</button><button id="mFast" aria-pressed="false">Rápido</button></span>
+    <button data-k="64">Ir a la «s»</button>
+    <button data-k="76">Ir a la vocal</button>
+  </div>
+  <div class="row">
+    <label>Trozo <input type="range" id="kSlider" min="0" max="180" step="1" value="0"><span class="val" id="kVal">1 / 181</span></label>
+  </div>
+  <ol class="phases" aria-label="Fases del cálculo de cada columna">
+    <li>Cortar 20 ms</li><li>Multiplicar por la ventana</li><li>FFT de 512 puntos</li><li>Pintar la columna</li>
+  </ol>
+  <p class="amsg" id="aMsg" aria-live="polite"></p>
+  <canvas id="aWave" style="height:110px"></canvas>
+  <div class="duo" style="margin:1rem 0 0">
+    <figure>
+      <div class="tag" style="color:var(--rect)">Ventana rectangular</div>
+      <canvas id="aFrameR" style="height:120px"></canvas>
+      <canvas id="aSpecR" style="height:280px;margin-top:.6rem"></canvas>
+    </figure>
+    <figure>
+      <div class="tag" style="color:var(--hamm)">Ventana de Hamming</div>
+      <canvas id="aFrameH" style="height:120px"></canvas>
+      <canvas id="aSpecH" style="height:280px;margin-top:.6rem"></canvas>
+    </figure>
+  </div>
+  <figcaption>Arriba, la señal y la ventana que avanza 10 ms cada vez. En cada columna: el trozo (gris), la forma de la ventana (discontinua) y el trozo enventanado (color). Debajo, el espectrograma que se va construyendo y, a su derecha, la FFT del trozo actual: cada barra es una frecuencia, su longitud y su color indican la intensidad en dB.</figcaption>
+</section>
+<p class="prose" style="font-size:.95rem;color:var(--muted)">La señal es sintética e imita «siete»: una <em>s</em> siseante, la vocal «ie», el golpe de la <em>t</em> y la «e» final. Los parámetros son los de la práctica: ventanas de 20 ms, solape del 50 % y FFT de 512 puntos. Cuando lleguen las vocales, fíjate en las rayas horizontales: con la rectangular se emborronan hacia arriba; con Hamming se ven limpias hasta 3–4 kHz.</p>
+
+<!-- 1 -->
+<section class="step" id="paso1">
+  <div class="num" aria-hidden="true">1</div>
+  <div>
+    <h2>El sonido cambia con el tiempo, así que lo cortamos en trozos</h2>
+    <div class="prose">
+      <p>La FFT (transformada rápida de Fourier) responde a una pregunta: <strong>¿qué frecuencias hay en este trozo de señal y con cuánta fuerza?</strong> Pero en la voz las frecuencias cambian continuamente: la <em>s</em> es aguda, la <em>i</em> y la <em>e</em> tienen otro timbre. Si hiciéramos una sola FFT de todo el audio, lo mezclaríamos todo.</p>
+      <p>La solución es trocear: cogemos <strong>20 ms</strong> de audio (a 16 000 muestras por segundo son <code>320</code> muestras), hacemos su FFT, avanzamos <strong>10 ms</strong> (<code>160</code> muestras, de ahí el solape del 50 %) y repetimos. Cada trozo es una «foto» del sonido en ese instante.</p>
+    </div>
+    <div class="lab">
+      <div class="row">
+        <label>Posición del trozo <input type="range" id="tSlider" min="0" max="1.78" step="0.01" value="0.78"><span class="val" id="tVal">0.78 s</span></label>
+      </div>
+      <div class="row" role="group" aria-label="Saltar a un sonido">
+        <button data-t="0.30">Silencio</button>
+        <button data-t="0.645">«s»</button>
+        <button data-t="0.78">Vocal «ie»</button>
+        <button data-t="1.04">Vocal «e»</button>
+      </div>
+      <canvas id="wave" style="height:140px"></canvas>
+      <figcaption>La señal completa. La franja marcada son los 20 ms que estamos analizando.</figcaption>
+    </div>
+  </div>
+</section>
+
+<!-- 2 -->
+<section class="step" id="paso2">
+  <div class="num" aria-hidden="true">2</div>
+  <div>
+    <h2>Recortar es multiplicar por una ventana</h2>
+    <div class="prose">
+      <p>Extraer 320 muestras equivale a multiplicar la señal por una función que vale 1 dentro del trozo y 0 fuera. Esa función es la <span class="r">ventana rectangular</span> (en la práctica, <code>'boxcar'</code>): corta en seco, como unas tijeras.</p>
+      <p>La <span class="h">ventana de Hamming</span> hace lo mismo pero con suavidad: empieza casi en 0 (0.08), sube hasta 1 en el centro y vuelve a bajar. Es como subir y bajar el volumen poco a poco en lugar de cortar el sonido de golpe.</p>
+    </div>
+    <div class="lab">
+      <div class="row" role="group" aria-label="Elegir ventana">
+        <button id="bR" aria-pressed="true">Rectangular</button>
+        <button id="bH" aria-pressed="false">Hamming</button>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--orig)"></i>Trozo original</span>
+        <span><i id="lgW" style="background:var(--rect)"></i>Forma de la ventana (escalada)</span>
+        <span><i id="lgP" style="background:var(--rect)"></i>Trozo × ventana (lo que entra a la FFT)</span>
+      </div>
+      <canvas id="frame" style="height:220px"></canvas>
+      <figcaption>Con la rectangular el trozo empieza y acaba en valores cualesquiera. Con Hamming sus extremos se aplastan hacia cero.</figcaption>
+    </div>
+    <div class="prose">
+      <h3>¿Por qué importan los bordes?</h3>
+      <p>La FFT trata el trozo como si se repitiera una y otra vez, pegado a sí mismo. Si el final no encaja con el principio, al pegarlos aparece un <strong>salto brusco</strong>. Un salto brusco es como un chasquido, y un chasquido contiene <em>todas</em> las frecuencias. Resultado: la FFT «ve» frecuencias que en realidad no estaban en el sonido. A esto se le llama <strong>fuga espectral</strong> (<em>spectral leakage</em>).</p>
+      <p>Hamming lleva los dos extremos casi a cero, así que al pegar el trozo consigo mismo apenas hay salto, y la fuga es mucho menor.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 3 -->
+<section class="step" id="paso3">
+  <div class="num" aria-hidden="true">3</div>
+  <div>
+    <h2>Hacemos la FFT del trozo</h2>
+    <div class="prose">
+      <p>Ahora aplicamos la FFT de 512 puntos al trozo enventanado. Como el trozo solo tiene 320 muestras, se completan con ceros hasta 512 (<em>zero-padding</em>); eso no añade información, solo dibuja el espectro con más puntos. Salen <code>512/2 + 1 = 257</code> frecuencias entre 0 y 8000 Hz, separadas 31.25 Hz.</p>
+    </div>
+    <div class="lab">
+      <div class="legend">
+        <span><i style="background:var(--rect)"></i>FFT con ventana rectangular</span>
+        <span><i style="background:var(--hamm)"></i>FFT con ventana de Hamming</span>
+      </div>
+      <canvas id="fspec" style="height:280px"></canvas>
+      <figcaption>Espectro (en dB) del mismo trozo elegido en el paso 1. Mueve el deslizador de arriba para cambiar de trozo.</figcaption>
+    </div>
+    <div class="prose">
+      <p>En una vocal verás una serie de picos regulares: son los <strong>armónicos</strong> de la voz (múltiplos de la frecuencia del tono, unos 120–140 Hz). Mira qué pasa <em>entre</em> picos y en las frecuencias altas: con la <span class="r">rectangular</span> el «suelo» está mucho más alto, porque cada armónico fuerte derrama energía hacia los lados. Con <span class="h">Hamming</span> los picos son algo más anchos, pero los valles son profundos y el espectro cae limpio.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="step" id="paso4">
+  <div class="num" aria-hidden="true">4</div>
+  <div>
+    <h2>La huella de cada ventana</h2>
+    <div class="prose">
+      <p>Esta es la clave de todo. Multiplicar la señal por una ventana hace que <strong>cada frecuencia pura aparezca en el espectro con la forma del espectro de la ventana</strong>. Un tono perfecto no se ve como una raya finísima, sino como esta figura:</p>
+    </div>
+    <div class="lab">
+      <div class="legend">
+        <span><i style="background:var(--rect)"></i>Rectangular</span>
+        <span><i style="background:var(--hamm)"></i>Hamming</span>
+      </div>
+      <canvas id="wshape" style="height:150px"></canvas>
+      <figcaption>Las dos ventanas en el tiempo (320 muestras = 20 ms).</figcaption>
+      <canvas id="wspec" style="height:300px;margin-top:1rem"></canvas>
+      <figcaption>Cómo se ve un único tono puro con cada ventana. El 0 del eje horizontal es la frecuencia real del tono.</figcaption>
+    </div>
+    <div class="prose">
+      <p>Cada huella tiene dos partes:</p>
+      <p><strong>El lóbulo principal</strong>, la joroba central. Su anchura decide la <em>resolución en frecuencia</em>: si dos tonos están más cerca que esa anchura, se funden en uno. La <span class="r">rectangular</span> tiene el lóbulo más estrecho posible (100 Hz de ancho entre los ceros); el de <span class="h">Hamming</span> mide el doble (200 Hz). Por eso en el espectrograma Hamming las rayas horizontales salen <strong>más gruesas</strong>.</p>
+      <p><strong>Los lóbulos laterales</strong>, las ondulaciones a los lados. Son la fuga espectral: energía que aparece donde no hay nada. En la <span class="r">rectangular</span> el primero está solo 13 dB por debajo del pico, y bajan despacio. En <span class="h">Hamming</span> están unos 43 dB por debajo: unas 140 veces más bajos en amplitud.</p>
+      <p class="callout">Piensa en un telescopio mirando una estrella brillante. La rectangular es una lente muy nítida pero con mucho halo: el resplandor tapa a las estrellas débiles cercanas. Hamming es una lente un poco menos nítida, pero sin apenas halo: deja ver las estrellas débiles.</p>
+      <p>No existe una ventana que tenga a la vez el lóbulo principal estrecho y los laterales bajos: suavizar los bordes baja los lóbulos laterales, pero ensancha el principal. Es un compromiso inevitable.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="step" id="paso5">
+  <div class="num" aria-hidden="true">5</div>
+  <div>
+    <h2>Experimento: dos tonos, dos ventanas</h2>
+    <div class="prose">
+      <p>Un trozo de 20 ms contiene dos tonos: uno fuerte a 2000 Hz y otro que puedes mover y hacer más débil. Busca las dos situaciones en las que cada ventana gana.</p>
+    </div>
+    <div class="lab">
+      <div class="row">
+        <label>Separación <input type="range" id="dSlider" min="20" max="600" step="5" value="500"><span class="val" id="dVal">500 Hz</span></label>
+        <label>Nivel del 2.º tono <input type="range" id="aSlider" min="-70" max="0" step="1" value="-36"><span class="val" id="aVal">−36 dB</span></label>
+      </div>
+      <div class="row" role="group" aria-label="Situaciones de ejemplo">
+        <button id="p1">Tono débil lejos del fuerte</button>
+        <button id="p2">Dos tonos iguales muy juntos</button>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--rect)"></i>Rectangular</span>
+        <span><i style="background:var(--hamm)"></i>Hamming</span>
+        <span><i style="background:var(--muted)"></i>Dónde están de verdad los tonos</span>
+      </div>
+      <canvas id="tspec" style="height:300px"></canvas>
+      <div class="verdict">
+        <div id="vR" style="border-color:var(--rect)"></div>
+        <div id="vH" style="border-color:var(--hamm)"></div>
+      </div>
+    </div>
+    <div class="prose">
+      <p><strong>Tono débil y lejos:</strong> el segundo tono queda enterrado bajo los lóbulos laterales de la rectangular, pero Hamming lo deja asomar. Esto es el «mayor margen dinámico» del que habla la práctica.</p>
+      <p><strong>Dos tonos iguales y muy juntos</strong> (unos 80–100 Hz): la rectangular los separa con un valle en medio; Hamming los funde en una sola joroba ancha. Esto es su «peor resolución frecuencial».</p>
+    </div>
+  </div>
+</section>
+
+<!-- 6 -->
+<section class="step" id="paso6">
+  <div class="num" aria-hidden="true">6</div>
+  <div>
+    <h2>Apilando FFTs: el espectrograma</h2>
+    <div class="prose">
+      <p>Repite los pasos 2 y 3 para todos los trozos, convierte cada espectro a decibelios y colócalos uno al lado de otro como columnas de colores: eso es el espectrograma. Con la señal de la práctica (28 904 muestras) salen <code>1 + 28904 // 160 = 181</code> columnas de <code>257</code> frecuencias: justo la forma <code>(257, 181)</code> que comprobaba el test.</p>
+      <p>Por eso los dB son necesarios (<code>librosa.amplitude_to_db</code>): la voz tiene muchísima más energía en graves que en agudos, y en escala lineal solo veríamos una mancha abajo. Los decibelios comprimen ese rango y dejan ver los detalles débiles… incluidos los lóbulos laterales. Ahí es donde la diferencia entre ventanas salta a la vista.</p>
+    </div>
+    <div class="lab">
+      <div class="row" role="group" aria-label="Zoom en frecuencia">
+        <button id="z8" aria-pressed="true">0–8000 Hz</button>
+        <button id="z4" aria-pressed="false">Zoom 0–4000 Hz</button>
+      </div>
+      <div class="duo" style="margin:.4rem 0 0">
+        <figure><div class="tag" style="color:var(--rect)">Rectangular</div><canvas id="spec2R" class="spec"></canvas></figure>
+        <figure><div class="tag" style="color:var(--hamm)">Hamming</div><canvas id="spec2H" class="spec"></canvas></figure>
+      </div>
+    </div>
+    <div class="prose">
+      <h3>Qué estás viendo, y por qué</h3>
+      <p><strong>Rayas más gruesas con Hamming.</strong> Cada armónico es un tono, y cada tono se dibuja con la anchura del lóbulo principal. El de Hamming es el doble de ancho.</p>
+      <p><strong>Columnas «lavadas» con la rectangular.</strong> Durante las vocales, la energía enorme de los graves se derrama por sus lóbulos laterales hacia todas las frecuencias. Ese derrame rellena los huecos entre armónicos y tapa los armónicos agudos, que son mucho más débiles. Con Hamming el derrame es ~30 dB menor, y entre 1000 y 4000 Hz aparecen los armónicos y las zonas de resonancia de la vocal (los formantes).</p>
+      <p><strong>El ruido de fondo y el silencio</strong> se ven parecidos con ambas: ahí no hay ningún componente fuerte cuyo derrame pueda tapar nada.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 7 -->
+<section class="step" id="paso7">
+  <div class="num" aria-hidden="true">7</div>
+  <div>
+    <h2>Resumen</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th></th><th>Rectangular (<code>'boxcar'</code>)</th><th>Hamming (<code>'hamming'</code>)</th></tr></thead>
+        <tbody>
+          <tr><th>Forma</th><td>Corte en seco</td><td>Sube y baja suavemente (0.08 → 1 → 0.08)</td></tr>
+          <tr><th>Lóbulo principal (20 ms)</th><td>100 Hz: el más estrecho</td><td>200 Hz: el doble</td></tr>
+          <tr><th>Primer lóbulo lateral</th><td>−13 dB</td><td>−43 dB</td></tr>
+          <tr><th>Resolución en frecuencia</th><td>Mejor: separa tonos cercanos</td><td>Peor: rayas más gruesas</td></tr>
+          <tr><th>Margen dinámico</th><td>Pobre: lo fuerte tapa lo débil</td><td>Bueno: lo débil se ve junto a lo fuerte</td></tr>
+          <tr><th>Ganancia (amplitud media)</th><td>1 (0 dB)</td><td>0.54 (≈ −5.4 dB)</td></tr>
+          <tr><th>Cuándo usarla</th><td>Tonos de amplitud parecida y muy juntos</td><td>Voz, música y casi todo lo demás</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="prose">
+      <p>Un detalle de la práctica que ahora encaja: con la rectangular el test esperaba <code>Sdb[42,42] ≈ −45.5 dB</code> y con Hamming <code>≈ −50.8 dB</code>. La diferencia es de unos 5.3 dB, casi exactamente la pérdida de ganancia de Hamming (20·log₁₀ 0.54 ≈ −5.4 dB). Al atenuar los extremos del trozo, la ventana deja pasar algo menos de energía en total, y todo el espectrograma baja un poco.</p>
+    </div>
+  </div>
+</section>
+
+<footer>Todas las gráficas se calculan en vivo con una FFT escrita en JavaScript. La señal es sintética, para que la página funcione sin el archivo <code>siete.wav</code>; los fenómenos son los mismos que en tus figuras.</footer>
+</main>
+
+<script>
+(() => {
+const FS = 16000, WIN = 320, HOP = 160, NFFT = 512;
+
+/* ---------- utilidades numéricas ---------- */
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const a = i + k, b = a + len / 2;
+        const tr = re[b] * cr - im[b] * ci, ti = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+        const nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr;
+      }
+    }
+  }
+}
+function magSpec(frame, n) { // frame ya enventanado; devuelve |X| para 0..n/2
+  const re = new Float64Array(n), im = new Float64Array(n);
+  re.set(frame.subarray ? frame.subarray(0, Math.min(frame.length, n)) : frame);
+  fft(re, im);
+  const out = new Float64Array(n / 2 + 1);
+  for (let k = 0; k <= n / 2; k++) out[k] = Math.hypot(re[k], im[k]);
+  return out;
+}
+const rectW = L => new Float64Array(L).fill(1);
+const hammW = L => Float64Array.from({ length: L }, (_, n) => 0.54 - 0.46 * Math.cos(2 * Math.PI * n / L)); // periódica, como scipy/librosa
+const WINS = { r: rectW(WIN), h: hammW(WIN) };
+const db = v => 20 * Math.log10(Math.max(v, 1e-5));
+
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+/* ---------- señal sintética tipo «siete» ---------- */
+function synth() {
+  const N = 28800, x = new Float64Array(N), rnd = mulberry32(11);
+  let spare = null;
+  const g = () => { if (spare !== null) { const s = spare; spare = null; return s; }
+    let u = 0, v = 0; while (u === 0) u = rnd(); v = rnd();
+    const m = Math.sqrt(-2 * Math.log(u)); spare = m * Math.sin(2 * Math.PI * v); return m * Math.cos(2 * Math.PI * v); };
+  const ramp = (t, a, b, r) => t < a || t > b ? 0 : Math.min(1, (t - a) / r, (b - t) / r) ** 2 * (3 - 2 * Math.min(1, (t - a) / r, (b - t) / r));
+  // ruido de fondo + zumbido grave
+  for (let i = 0; i < N; i++) x[i] = 0.00025 * g() + 0.002 * Math.sin(2 * Math.PI * 55 * i / FS) + 0.0008 * Math.sin(2 * Math.PI * 110 * i / FS);
+  // un clic suelto
+  const c0 = Math.round(0.17 * FS); for (let i = 0; i < 120; i++) x[c0 + i] += 0.012 * g() * Math.exp(-i / 25);
+  // «s»: ruido con énfasis en agudos
+  let p1 = 0, p2 = 0;
+  for (let i = Math.round(0.57 * FS); i < Math.round(0.72 * FS); i++) {
+    const t = i / FS, w = g(), d1 = w - p1, d2 = d1 - p2; p1 = w; p2 = d1;
+    x[i] += 0.0035 * d2 * ramp(t, 0.575, 0.715, 0.03);
+  }
+  // «t»: explosión breve
+  const t0 = Math.round(0.935 * FS); for (let i = 0; i < 220; i++) x[t0 + i] += 0.03 * g() * Math.exp(-i / 60);
+  // vocales: armónicos con formantes
+  function voiced(ta, tb, f0a, f0b, Fa, Fb, amp) { amp *= 2.2;
+    let ph = 0; const B = [90, 130, 180], G = [1, 0.55, 0.35];
+    let amps = [];
+    for (let i = Math.round(ta * FS); i < Math.round(tb * FS); i++) {
+      const t = i / FS, u = (t - ta) / (tb - ta);
+      const f0 = f0a + (f0b - f0a) * u;
+      ph += 2 * Math.PI * f0 / FS;
+      if ((i & 31) === 0 || !amps.length) {
+        amps = [];
+        const F = Fa.map((f, j) => f + (Fb[j] - f) * u);
+        for (let k = 1; k * f0 < 7800; k++) {
+          const f = k * f0; let a = 0;
+          for (let j = 0; j < 3; j++) a += G[j] / (1 + ((f - F[j]) / B[j]) ** 2);
+          a = (a + 0.02) / (1 + f / 600);
+          amps.push(a);
+        }
+      }
+      let s = 0; for (let k = 0; k < amps.length; k++) s += amps[k] * Math.sin((k + 1) * ph);
+      x[i] += amp * s * ramp(t, ta, tb, 0.02);
+    }
+  }
+  voiced(0.69, 0.905, 142, 122, [300, 2300, 3050], [460, 1950, 2700], 0.11);
+  voiced(0.955, 1.13, 128, 108, [470, 1900, 2650], [430, 1800, 2550], 0.10);
+  return x;
+}
+const sig = synth();
+const NS = sig.length;
+
+/* ---------- STFT estilo librosa (center=True, reflect) ---------- */
+function stft(x, wkey) {
+  const pad = NFFT / 2, xp = new Float64Array(x.length + NFFT);
+  xp.set(x, pad);
+  for (let k = 0; k < pad; k++) { xp[pad - 1 - k] = x[k + 1]; xp[pad + x.length + k] = x[x.length - 2 - k]; }
+  const w = new Float64Array(NFFT); w.set(WINS[wkey], (NFFT - WIN) / 2);
+  const frames = 1 + Math.floor(x.length / HOP), bins = NFFT / 2 + 1;
+  const S = new Float32Array(frames * bins); let mx = -Infinity;
+  const fr = new Float64Array(NFFT);
+  for (let t = 0; t < frames; t++) {
+    for (let j = 0; j < NFFT; j++) fr[j] = xp[t * HOP + j] * w[j];
+    const m = magSpec(fr, NFFT);
+    for (let b = 0; b < bins; b++) { const v = db(m[b]); S[t * bins + b] = v; if (v > mx) mx = v; }
+  }
+  for (let i = 0; i < S.length; i++) S[i] = Math.max(S[i], mx - 80); // top_db = 80
+  return { S, frames, bins, max: mx };
+}
+const SPEC = { r: stft(sig, 'r'), h: stft(sig, 'h') };
+
+/* ---------- dibujo ---------- */
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const FONT = '12px "Bricolage Grotesque", system-ui, sans-serif';
+function setup(cv) {
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+  return { ctx, w, h };
+}
+function axes(ctx, w, h, o) {
+  const m = { l: 48, r: 30, t: 10, b: 30 };
+  const X = v => m.l + (v - o.xmin) / (o.xmax - o.xmin) * (w - m.l - m.r);
+  const Y = v => m.t + (1 - (v - o.ymin) / (o.ymax - o.ymin)) * (h - m.t - m.b);
+  ctx.font = FONT; ctx.fillStyle = css('--muted'); ctx.strokeStyle = css('--grid'); ctx.lineWidth = 1;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  (o.xt || []).forEach(v => { const x = X(v); if (!o.noGrid) { ctx.beginPath(); ctx.moveTo(x, m.t); ctx.lineTo(x, h - m.b); ctx.stroke(); } ctx.fillText(o.xf ? o.xf(v) : v, x, h - m.b + 6); });
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  (o.yt || []).forEach(v => { const y = Y(v); if (!o.noGrid) { ctx.beginPath(); ctx.moveTo(m.l, y); ctx.lineTo(w - m.r, y); ctx.stroke(); } ctx.fillText(o.yf ? o.yf(v) : v, m.l - 6, y); });
+  if (o.xl) { ctx.textAlign = 'right'; ctx.textBaseline = 'top'; ctx.fillText(o.xl, w - 2, h - m.b + 6); }
+  if (o.yl) { ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(o.yl, m.l + 4, m.t + 2); }
+  return { X, Y, m };
+}
+function line(ctx, X, Y, xs, ys, color, width = 1.6, dash) {
+  ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = 'round'; if (dash) ctx.setLineDash(dash);
+  ctx.beginPath();
+  for (let i = 0; i < ys.length; i++) { const x = X(xs(i)), y = Y(ys[i]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+  ctx.stroke(); ctx.restore();
+}
+function tag(ctx, text, x, y, color, align = 'right') {
+  ctx.font = FONT; const tw = ctx.measureText(text).width, x0 = align === 'right' ? x - tw : x;
+  ctx.fillStyle = css('--panel'); ctx.globalAlpha = .92; ctx.fillRect(x0 - 4, y - 9, tw + 8, 18); ctx.globalAlpha = 1;
+  ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(text, x0, y);
+}
+function clipPlot(ctx, w, h, m) { ctx.save(); ctx.beginPath(); ctx.rect(m.l, m.t, w - m.l - m.r, h - m.t - m.b); ctx.clip(); }
+
+/* mapa de color tipo «inferno» (el de matplotlib/librosa) */
+const INF = [[0,0,4],[22,11,57],[66,10,104],[106,23,110],[147,38,103],[188,55,84],[221,81,58],[243,120,25],[252,165,10],[246,215,70],[252,255,164]];
+function inferno(u) { u = Math.min(1, Math.max(0, u)) * 10; const i = Math.min(9, Math.floor(u)), f = u - i, a = INF[i], b = INF[i + 1];
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f]; }
+
+function drawSpec(cv, sp, fmax) {
+  const { ctx, w, h } = setup(cv);
+  const binsShown = Math.round(fmax / (FS / NFFT)) + 1;
+  const off = document.createElement('canvas'); off.width = sp.frames; off.height = binsShown;
+  const oc = off.getContext('2d'), img = oc.createImageData(sp.frames, binsShown);
+  const lo = sp.max - 80;
+  for (let t = 0; t < sp.frames; t++) for (let b = 0; b < binsShown; b++) {
+    const c = inferno((sp.S[t * sp.bins + b] - lo) / 80), p = ((binsShown - 1 - b) * sp.frames + t) * 4;
+    img.data[p] = c[0]; img.data[p + 1] = c[1]; img.data[p + 2] = c[2]; img.data[p + 3] = 255;
+  }
+  oc.putImageData(img, 0, 0);
+  const dur = (sp.frames - 1) * HOP / FS;
+  const step = fmax > 4000 ? 2000 : 1000;
+  const { X, Y, m } = axes(ctx, w, h, { xmin: 0, xmax: dur, ymin: 0, ymax: fmax, xt: [0, 0.5, 1, 1.5], yt: Array.from({ length: fmax / step + 1 }, (_, i) => i * step), yf: v => v >= 1000 ? (v / 1000) + 'k' : v, xl: 's', yl: 'Hz', noGrid: true });
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(off, m.l, m.t, w - m.l - m.r, h - m.t - m.b);
+  return { X, Y, m, w, h, ctx };
+}
+
+/* ---------- animación principal ---------- */
+const XP = (() => { const pad = NFFT / 2, xp = new Float64Array(NS + NFFT); xp.set(sig, pad);
+  for (let k = 0; k < pad; k++) { xp[pad - 1 - k] = sig[k + 1]; xp[pad + NS + k] = sig[NS - 2 - k]; } return xp; })();
+const FRAMES = SPEC.r.frames, BINS = SPEC.r.bins, OFF = (NFFT - WIN) / 2;
+function specImage(sp) {
+  const c = document.createElement('canvas'); c.width = sp.frames; c.height = sp.bins;
+  const cx = c.getContext('2d'), img = cx.createImageData(sp.frames, sp.bins), lo = sp.max - 80;
+  for (let t = 0; t < sp.frames; t++) for (let b = 0; b < sp.bins; b++) {
+    const col = inferno((sp.S[t * sp.bins + b] - lo) / 80), p = ((sp.bins - 1 - b) * sp.frames + t) * 4;
+    img.data[p] = col[0]; img.data[p + 1] = col[1]; img.data[p + 2] = col[2]; img.data[p + 3] = 255;
+  }
+  cx.putImageData(img, 0, 0); return c;
+}
+const SIMG = { r: specImage(SPEC.r), h: specImage(SPEC.h) };
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const A = { k: 0, ph: 0, playing: !reduced, mode: 'step', acc: 0, dirty: true };
+const STEP_DUR = 2.6, FAST_DUR = 0.045;
+const ease = u => u * u * (3 - 2 * u);
+const phaseOf = () => A.mode === 'fast' ? [3, 1] : [Math.min(3, Math.floor(A.ph * 4)), Math.min(1, A.ph * 4 - Math.min(3, Math.floor(A.ph * 4)))];
+
+let envCache = { w: 0 };
+function drawAWave() {
+  const { ctx, w, h } = setup(document.getElementById('aWave'));
+  let pk = 0; for (const v of sig) pk = Math.max(pk, Math.abs(v));
+  const { X, Y, m } = axes(ctx, w, h, { xmin: 0, xmax: NS / FS, ymin: -pk, ymax: pk, xt: [0, 0.5, 1, 1.5], xl: 's', yt: [] });
+  const cols = Math.floor(w - m.l - m.r);
+  if (envCache.w !== cols) { const per = NS / cols, lo = [], hi = []; for (let c = 0; c < cols; c++) { let a = 0, b = 0; for (let i = Math.floor(c * per); i < Math.floor((c + 1) * per); i++) { a = Math.min(a, sig[i]); b = Math.max(b, sig[i]); } lo.push(a); hi.push(b); } envCache = { w: cols, lo, hi }; }
+  const tc = A.k * HOP / FS;
+  ctx.lineWidth = 1;
+  for (let c = 0; c < cols; c++) { const x = m.l + c + .5, t = (c + .5) / cols * NS / FS;
+    ctx.strokeStyle = t <= tc ? css('--ink') : css('--orig'); ctx.beginPath(); ctx.moveTo(x, Y(envCache.lo[c])); ctx.lineTo(x, Y(envCache.hi[c]) - .5); ctx.stroke(); }
+  const a = X(Math.max(0, tc - WIN / 2 / FS)), b = X(Math.min(NS / FS, tc + WIN / 2 / FS));
+  ctx.fillStyle = css('--hamm'); ctx.globalAlpha = .18; ctx.fillRect(a - 2, m.t, b - a + 4, h - m.t - m.b); ctx.globalAlpha = 1;
+  ctx.strokeStyle = css('--hamm'); ctx.lineWidth = 2; ctx.strokeRect(a - 2, m.t, b - a + 4, h - m.t - m.b);
+}
+function drawAFrame(key) {
+  const { ctx, w, h } = setup(document.getElementById(key === 'r' ? 'aFrameR' : 'aFrameH'));
+  const [p, u] = phaseOf(), col = css(key === 'r' ? '--rect' : '--hamm');
+  const s0 = A.k * HOP + OFF, raw = XP.subarray(s0, s0 + WIN), win = WINS[key];
+  let pk = 1e-4; for (const v of raw) pk = Math.max(pk, Math.abs(v)); pk *= 1.15;
+  const { X, Y, m } = axes(ctx, w, h, { xmin: 0, xmax: 20, ymin: -pk, ymax: pk, xt: [0, 10, 20], xl: 'ms', yt: [] });
+  const xs = i => i * 1000 / FS;
+  clipPlot(ctx, w, h, m);
+  if (p === 0) {
+    line(ctx, X, Y, xs, raw, css('--ink'), 1.5);
+    ctx.globalAlpha = ease(u); line(ctx, X, Y, xs, Array.from(win, v => v * pk / 1.15), col, 1.4, [5, 4]); ctx.globalAlpha = 1;
+  } else {
+    const mix = p === 1 ? ease(u) : 1;
+    line(ctx, X, Y, xs, raw, css('--orig'), 1.1);
+    line(ctx, X, Y, xs, Array.from(win, v => v * pk / 1.15), col, 1.4, [5, 4]);
+    line(ctx, X, Y, xs, Array.from(raw, (v, i) => v * (1 - mix + mix * win[i])), col, 2);
+  }
+  ctx.restore();
+}
+function drawASpec(key) {
+  const { ctx, w, h } = setup(document.getElementById(key === 'r' ? 'aSpecR' : 'aSpecH'));
+  const [p, u] = phaseOf(), sp = SPEC[key], img = SIMG[key], col = css(key === 'r' ? '--rect' : '--hamm');
+  const m = { l: 40, r: 6, t: 8, b: 26 }, panelW = Math.min(110, Math.max(64, w * .22)), gap = 12;
+  const sx = m.l, sw = w - m.l - m.r - panelW - gap, px = sx + sw + gap, ph = h - m.t - m.b;
+  const colW = sw / FRAMES, Yf = f => m.t + (1 - f / 8000) * ph;
+  ctx.font = FONT; ctx.fillStyle = css('--muted'); ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  [0, 2000, 4000, 6000, 8000].forEach(f => ctx.fillText(f ? f / 1000 + 'k' : '0', sx - 6, Yf(f)));
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  [0, 0.5, 1, 1.5].forEach(t => ctx.fillText(t, sx + t * FS / HOP * colW, h - m.b + 6));
+  ctx.textAlign = 'left'; ctx.fillText('FFT', px, h - m.b + 6);
+  ctx.fillStyle = css('--grid'); ctx.fillRect(sx, m.t, sw, ph); ctx.fillRect(px, m.t, panelW, ph);
+  ctx.imageSmoothingEnabled = false;
+  if (A.k > 0) ctx.drawImage(img, 0, 0, A.k, BINS, sx, m.t, A.k * colW, ph);
+  // espectro del trozo actual en barras
+  const lo = sp.max - 80, rowH = ph / BINS;
+  const reveal = p < 2 ? 0 : p === 2 ? Math.floor(ease(u) * BINS) : BINS;
+  for (let b = 0; b < reveal; b++) {
+    const v = Math.max(0, (sp.S[A.k * BINS + b] - lo) / 80), c = inferno(v);
+    ctx.fillStyle = `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+    ctx.fillRect(px, m.t + (BINS - 1 - b) * rowH, Math.max(1, v * panelW), rowH + .6);
+  }
+  if (reveal > 0) {
+    ctx.strokeStyle = col; ctx.lineWidth = 1.4; ctx.beginPath();
+    for (let b = 0; b < reveal; b++) { const v = Math.max(0, (sp.S[A.k * BINS + b] - lo) / 80), x = px + v * panelW, y = m.t + (BINS - .5 - b) * rowH; b ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.stroke();
+  }
+  // la columna viaja del panel a su sitio
+  const slotX = sx + A.k * colW;
+  if (p === 3) {
+    const e = ease(u), x = px + (slotX - px) * e, cw = Math.max(colW, (1 - e) * 14 + colW);
+    ctx.drawImage(img, A.k, 0, 1, BINS, x, m.t, cw, ph);
+  }
+  ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.strokeRect(slotX - 1, m.t - 1, colW + 2, ph + 2);
+}
+const PH_MSG = [
+  (k, a, b) => `Trozo ${k + 1}: cortamos las 320 muestras que van de ${a} a ${b} ms. Es la «foto» del sonido en ese instante.`,
+  () => `Multiplicamos el trozo por la ventana. La rectangular lo deja tal cual (corte en seco); Hamming lleva sus bordes casi a cero.`,
+  () => `Calculamos la FFT de 512 puntos: 257 valores, uno por frecuencia de 0 a 8000 Hz. Los pasamos a dB y cada valor se convierte en un color.`,
+  (k) => `Colocamos esos 257 colores como la columna ${k + 1} del espectrograma y avanzamos 10 ms al siguiente trozo.`
+];
+let lastMsg = '';
+function drawAnim() {
+  const [p] = phaseOf();
+  document.querySelectorAll('.phases li').forEach((li, i) => { li.classList.toggle('on', A.mode === 'step' ? i === p : false); li.classList.toggle('done', A.mode === 'fast'); });
+  const a = Math.round((A.k * HOP - WIN / 2) / FS * 1000), b = a + 20;
+  const msg = A.mode === 'fast' ? `Trozo ${A.k + 1} de ${FRAMES}: cada 45 ms se repiten las cuatro fases con el siguiente trozo. Cambia a «Paso a paso» para verlas una a una.` : PH_MSG[p](A.k, a, b);
+  if (msg !== lastMsg) { document.getElementById('aMsg').textContent = msg; lastMsg = msg; }
+  document.getElementById('kSlider').value = A.k; document.getElementById('kVal').textContent = `${A.k + 1} / ${FRAMES}`;
+  drawAWave(); drawAFrame('r'); drawAFrame('h'); drawASpec('r'); drawASpec('h');
+}
+const aPlay = document.getElementById('aPlay');
+const syncBtn = () => aPlay.textContent = A.playing ? 'Pausar' : (A.k >= FRAMES - 1 && A.ph >= 1 ? 'Repetir' : 'Reproducir');
+function advance() { if (A.k >= FRAMES - 1) { A.playing = false; A.ph = 1; syncBtn(); return false; } A.k++; return true; }
+let lastTs = 0;
+function tick(ts) {
+  const dt = lastTs ? Math.min(.1, (ts - lastTs) / 1000) : 0; lastTs = ts;
+  if (A.playing) {
+    if (A.mode === 'step') { A.ph += dt / STEP_DUR; while (A.ph >= 1 && A.playing) { if (advance()) A.ph -= 1; } }
+    else { A.acc += dt; while (A.acc >= FAST_DUR && A.playing) { A.acc -= FAST_DUR; advance(); } A.ph = 1; }
+    A.dirty = true;
+  }
+  if (A.dirty) { drawAnim(); A.dirty = false; }
+  requestAnimationFrame(tick);
+}
+aPlay.onclick = () => { if (!A.playing && A.k >= FRAMES - 1 && A.ph >= 1) { A.k = 0; A.ph = 0; } A.playing = !A.playing; syncBtn(); A.dirty = true; };
+document.getElementById('aReset').onclick = () => { A.k = 0; A.ph = 0; A.playing = true; syncBtn(); A.dirty = true; };
+const mStep = document.getElementById('mStep'), mFast = document.getElementById('mFast');
+function setMode(md) { A.mode = md; A.ph = md === 'fast' ? 1 : 0; mStep.setAttribute('aria-pressed', md === 'step'); mFast.setAttribute('aria-pressed', md === 'fast'); A.dirty = true; }
+mStep.onclick = () => setMode('step'); mFast.onclick = () => setMode('fast');
+document.getElementById('kSlider').addEventListener('input', e => { A.k = +e.target.value; A.ph = A.mode === 'fast' ? 1 : 0; A.dirty = true; });
+document.querySelectorAll('[data-k]').forEach(b => b.addEventListener('click', () => { A.k = +b.dataset.k; A.ph = A.mode === 'fast' ? 1 : 0; A.dirty = true; }));
+syncBtn();
+
+/* ---------- pasos 1–3 ---------- */
+let tSel = 0.78, wSel = 'r';
+const tSlider = document.getElementById('tSlider'), tVal = document.getElementById('tVal');
+function frameAt(t) { let s = Math.round(t * FS) - WIN / 2; s = Math.max(0, Math.min(NS - WIN, s)); return sig.slice(s, s + WIN); }
+
+function drawWave() {
+  const cv = document.getElementById('wave'), { ctx, w, h } = setup(cv);
+  let pk = 0; for (const v of sig) pk = Math.max(pk, Math.abs(v));
+  const { X, Y, m } = axes(ctx, w, h, { xmin: 0, xmax: NS / FS, ymin: -pk, ymax: pk, xt: [0, 0.5, 1, 1.5], xl: 's', yt: [] });
+  const cols = Math.floor(w - m.l - m.r), per = NS / cols;
+  ctx.strokeStyle = css('--orig'); ctx.lineWidth = 1; ctx.beginPath();
+  for (let c = 0; c < cols; c++) { let lo = 0, hi = 0; for (let i = Math.floor(c * per); i < Math.floor((c + 1) * per); i++) { lo = Math.min(lo, sig[i]); hi = Math.max(hi, sig[i]); } const x = m.l + c + .5; ctx.moveTo(x, Y(lo)); ctx.lineTo(x, Y(hi) - .5); }
+  ctx.stroke();
+  const a = X(tSel - WIN / 2 / FS), b = X(tSel + WIN / 2 / FS);
+  ctx.fillStyle = css('--ink'); ctx.globalAlpha = .14; ctx.fillRect(a - 2, m.t, Math.max(4, b - a + 4), h - m.t - m.b); ctx.globalAlpha = 1;
+  ctx.strokeStyle = css('--ink'); ctx.lineWidth = 1.5; ctx.strokeRect(a - 2, m.t, Math.max(4, b - a + 4), h - m.t - m.b);
+}
+function drawFrame() {
+  const cv = document.getElementById('frame'), { ctx, w, h } = setup(cv);
+  const fr = frameAt(tSel), win = WINS[wSel], col = css(wSel === 'r' ? '--rect' : '--hamm');
+  let pk = 1e-6; for (const v of fr) pk = Math.max(pk, Math.abs(v)); pk *= 1.12;
+  const { X, Y, m } = axes(ctx, w, h, { xmin: 0, xmax: 20, ymin: -pk, ymax: pk, xt: [0, 5, 10, 15, 20], xl: 'ms', yt: [0], yf: () => '0' });
+  const xs = i => i * 1000 / FS;
+  clipPlot(ctx, w, h, m);
+  line(ctx, X, Y, xs, fr, css('--orig'), 1.2);
+  line(ctx, X, Y, xs, Array.from(win, v => v * pk / 1.12), col, 1.4, [5, 4]);
+  line(ctx, X, Y, xs, Array.from(fr, (v, i) => v * win[i]), col, 2);
+  ctx.restore();
+  document.getElementById('lgW').style.background = col; document.getElementById('lgP').style.background = col;
+}
+function drawFSpec() {
+  const cv = document.getElementById('fspec'), { ctx, w, h } = setup(cv);
+  const fr = frameAt(tSel);
+  const sp = {};
+  let mx = -200;
+  for (const k of ['r', 'h']) { sp[k] = Array.from(magSpec(Float64Array.from(fr, (v, i) => v * WINS[k][i]), NFFT), db); for (const v of sp[k]) mx = Math.max(mx, v); }
+  const top = Math.ceil((mx + 3) / 10) * 10, bot = top - 90;
+  const { X, Y, m } = axes(ctx, w, h, { xmin: 0, xmax: 8000, ymin: bot, ymax: top, xt: [0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000], xf: v => v ? (v / 1000) + 'k' : '0', xl: 'Hz', yt: Array.from({ length: 10 }, (_, i) => bot + i * 10).filter((_, i) => i % 2 === 0), yl: 'dB' });
+  clipPlot(ctx, w, h, m);
+  const xs = k => k * FS / NFFT;
+  line(ctx, X, Y, xs, sp.r, css('--rect'), 1.6);
+  line(ctx, X, Y, xs, sp.h, css('--hamm'), 1.8);
+  ctx.restore();
+}
+function setT(t) { tSel = t; tSlider.value = t; tVal.textContent = t.toFixed(2) + ' s'; drawWave(); drawFrame(); drawFSpec(); }
+tSlider.addEventListener('input', () => setT(+tSlider.value));
+document.querySelectorAll('[data-t]').forEach(b => b.addEventListener('click', () => setT(+b.dataset.t)));
+const bR = document.getElementById('bR'), bH = document.getElementById('bH');
+function setW(k) { wSel = k; bR.setAttribute('aria-pressed', k === 'r'); bH.setAttribute('aria-pressed', k === 'h'); drawFrame(); }
+bR.onclick = () => setW('r'); bH.onclick = () => setW('h');
+
+/* ---------- paso 4: huellas ---------- */
+const BIG = 16384;
+const WSPEC = {};
+for (const k of ['r', 'h']) { const m = magSpec(WINS[k], BIG); const mx = Math.max(...m); WSPEC[k] = Array.from(m, v => db(v / mx)); }
+function drawWin() {
+  let { ctx, w, h } = setup(document.getElementById('wshape'));
+  let a = axes(ctx, w, h, { xmin: 0, xmax: 20, ymin: 0, ymax: 1.1, xt: [0, 5, 10, 15, 20], xl: 'ms', yt: [0, 0.5, 1] });
+  const xs = i => i * 1000 / FS;
+  line(ctx, a.X, a.Y, xs, WINS.r, css('--rect'), 2.2);
+  line(ctx, a.X, a.Y, xs, WINS.h, css('--hamm'), 2.2);
+
+  ({ ctx, w, h } = setup(document.getElementById('wspec')));
+  const F = 800, df = FS / BIG, n = Math.round(F / df);
+  a = axes(ctx, w, h, { xmin: -F, xmax: F, ymin: -80, ymax: 5, xt: [-800, -600, -400, -200, 0, 200, 400, 600, 800], xl: 'Hz', yt: [-80, -60, -40, -20, 0], yl: 'dB' });
+  clipPlot(ctx, w, h, a.m);
+  for (const k of ['r', 'h']) {
+    const ys = []; for (let i = -n; i <= n; i++) ys.push(WSPEC[k][Math.abs(i)]);
+    line(ctx, a.X, a.Y, i => (i - n) * df, ys, css(k === 'r' ? '--rect' : '--hamm'), k === 'r' ? 1.5 : 2);
+  }
+  ctx.restore();
+  ctx.font = FONT; ctx.textBaseline = 'bottom';
+  [[-13.3, '--rect', 'lóbulos laterales ≈ −13 dB'], [-42.7, '--hamm', 'lóbulos laterales ≈ −43 dB']].forEach(([v, c, t]) => {
+    ctx.strokeStyle = css(c); ctx.setLineDash([3, 4]); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(a.X(120), a.Y(v)); ctx.lineTo(a.X(800), a.Y(v)); ctx.stroke(); ctx.setLineDash([]);
+    tag(ctx, t, a.X(790), a.Y(v) - 11, css(c));
+  });
+  // anchura de lóbulos principales
+  [[50, '--rect', 'lóbulo principal 100 Hz', -4], [100, '--hamm', 'lóbulo principal 200 Hz', -60]].forEach(([hw, c, t, yv]) => {
+    const y = a.Y(yv); ctx.strokeStyle = css(c); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(a.X(-hw), y); ctx.lineTo(a.X(hw), y); ctx.moveTo(a.X(-hw), y - 4); ctx.lineTo(a.X(-hw), y + 4); ctx.moveTo(a.X(hw), y - 4); ctx.lineTo(a.X(hw), y + 4); ctx.stroke();
+    tag(ctx, t, a.X(-hw) - 8, y, css(c));
+  });
+}
+
+/* ---------- paso 5: dos tonos ---------- */
+const dS = document.getElementById('dSlider'), aS = document.getElementById('aSlider');
+const F1 = 2000, ZP = 4096;
+function toneSpec(k, d, adb, withSecond = true) {
+  const A2 = withSecond ? 10 ** (adb / 20) : 0, win = WINS[k];
+  const fr = Float64Array.from({ length: WIN }, (_, n) => (Math.cos(2 * Math.PI * F1 * n / FS) + A2 * Math.cos(2 * Math.PI * (F1 + d) * n / FS + 1.1)) * win[n]);
+  const m = magSpec(fr, ZP); let mx = 0; for (const v of m) mx = Math.max(mx, v);
+  return Array.from(m, v => db(v / mx));
+}
+function visible(k, d, adb) {
+  const s = toneSpec(k, d, adb), s0 = toneSpec(k, d, adb, false), df = FS / ZP;
+  const i2 = Math.round((F1 + d) / df), i1 = Math.round(F1 / df), tol = Math.max(2, Math.round(25 / df));
+  let best = -1;
+  for (let i = i2 - tol; i <= i2 + tol; i++) if (s[i] >= s[i - 1] && s[i] >= s[i + 1] && (best < 0 || s[i] > s[best])) best = i;
+  if (best < 0) return false;
+  let dip = Infinity; for (let i = i1; i <= best; i++) dip = Math.min(dip, s[i]);
+  return s[best] - dip >= 3 && s[best] - s0[best] >= 6;
+}
+function drawTones() {
+  const d = +dS.value, adb = +aS.value;
+  document.getElementById('dVal').textContent = d + ' Hz';
+  document.getElementById('aVal').textContent = (adb < 0 ? '−' + (-adb) : '0') + ' dB';
+  const { ctx, w, h } = setup(document.getElementById('tspec'));
+  const df = FS / ZP, lo = 1300, hi = 2900;
+  const a = axes(ctx, w, h, { xmin: lo, xmax: hi, ymin: -80, ymax: 5, xt: [1400, 1600, 1800, 2000, 2200, 2400, 2600, 2800], xl: 'Hz', yt: [-80, -60, -40, -20, 0], yl: 'dB' });
+  ctx.strokeStyle = css('--muted'); ctx.setLineDash([2, 4]); ctx.lineWidth = 1.2;
+  [[F1, 0], [F1 + d, adb]].forEach(([f, l]) => { ctx.beginPath(); ctx.moveTo(a.X(f), a.Y(-80)); ctx.lineTo(a.X(f), a.Y(l)); ctx.stroke(); ctx.fillStyle = css('--muted'); ctx.beginPath(); ctx.arc(a.X(f), a.Y(l), 3.5, 0, 7); ctx.fill(); });
+  ctx.setLineDash([]);
+  clipPlot(ctx, w, h, a.m);
+  const i0 = Math.floor(lo / df), i1 = Math.ceil(hi / df);
+  for (const k of ['r', 'h']) { const s = toneSpec(k, d, adb).slice(i0, i1 + 1); line(ctx, a.X, a.Y, i => (i + i0) * df, s, css(k === 'r' ? '--rect' : '--hamm'), k === 'r' ? 1.5 : 2); }
+  ctx.restore();
+  for (const [k, id, name] of [['r', 'vR', 'Rectangular'], ['h', 'vH', 'Hamming']]) {
+    const ok = visible(k, d, adb);
+    document.getElementById(id).innerHTML = `<strong>${name}:</strong> <span style="color:var(${ok ? '--ok' : '--bad'})">${ok ? 'se distinguen los dos tonos' : 'el segundo tono no se distingue'}</span>`;
+  }
+}
+dS.addEventListener('input', drawTones); aS.addEventListener('input', drawTones);
+document.getElementById('p1').onclick = () => { dS.value = 500; aS.value = -36; drawTones(); };
+document.getElementById('p2').onclick = () => { dS.value = 85; aS.value = 0; drawTones(); };
+
+/* ---------- paso 6 ---------- */
+let fmax2 = 8000;
+const z8 = document.getElementById('z8'), z4 = document.getElementById('z4');
+function drawSpec2() { drawSpec(document.getElementById('spec2R'), SPEC.r, fmax2); drawSpec(document.getElementById('spec2H'), SPEC.h, fmax2); }
+function setZ(f) { fmax2 = f; z8.setAttribute('aria-pressed', f === 8000); z4.setAttribute('aria-pressed', f === 4000); drawSpec2(); }
+z8.onclick = () => setZ(8000); z4.onclick = () => setZ(4000);
+
+/* ---------- todo ---------- */
+function drawAll() { A.dirty = true; drawWave(); drawFrame(); drawFSpec(); drawWin(); drawTones(); drawSpec2(); }
+drawAll();
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawAll);
+requestAnimationFrame(tick);
+let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(drawAll, 120); });
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawAll);
+new MutationObserver(drawAll).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+})();
+</script>
+</body>
+</html>
